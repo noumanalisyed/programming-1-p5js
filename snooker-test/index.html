@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pool Game</title>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.17.1/matter.min.js"></script>
+</head>
+<body>
+<script>
+  // Matter.js module aliases
+  const { Engine, Render, Runner, Bodies, Body, World, Constraint, Mouse, MouseConstraint, Events, Collision } = Matter;
+
+  let engine;
+  let canvas;
+  let cueBall;
+  let cueStick;
+  let pointBoard;
+  let table;
+  let timer;
+  let hp;
+  let aiming = false;
+
+  function setup() {
+    canvas = createCanvas(1200, 600);
+    engine = Engine.create();
+
+    // Setup objects
+    cueBall = new CueBall();
+    cueStick = new CueStick();
+    pointBoard = new PointBoard();
+    table = new Table();
+    timer = new Timer();
+    hp = new Helper();
+
+    // Set up the table and cue ball
+    table.createCushions();
+    cueBall.setUpCueBall(400, 300);
+
+    // Set up mouse interaction
+    hp.setupMouseInteraction();
+  }
+
+  function draw() {
+    background(0);
+    Engine.update(engine);
+
+    // Draw the table and cue ball
+    table.draw();
+    cueBall.draw();
+    cueStick.display();
+    pointBoard.showScore();
+    timer.startTimer();
+    timer.drawTimer();
+
+    // Update cue stick position and handle shooting
+    cueStick.update();
+
+    // Detect collisions
+    table.detectCollision(cueBall.ball);
+
+    // Draw additional game elements as needed
+  }
+
+  function keyPressed() {
+    // Start aiming mode when the arrow keys are pressed
+    if (keyCode === UP_ARROW || keyCode === DOWN_ARROW) {
+      aiming = true;
+    }
+
+    // Trigger shooting when ENTER is pressed
+    if (keyCode === ENTER && aiming) {
+      cueStick.shooting = true;
+    }
+  }
+
+  // CueBall class definition
+  function CueBall() {
+    this.ball;
+    this.ballConstraint;
+    this.isConstrained = false;
+
+    // Creates the ball object
+    this.setUpCueBall = (x, y) => {
+      this.ball = Bodies.circle(x, y, 400 / 72, {
+        friction: 0.7,
+        restitution: 0.95,
+      });
+      Body.setMass(this.ball, this.ball.mass *= 2);
+      World.add(engine.world, [this.ball]);
+    };
+
+    // Creates the constraint
+    this.setUpConstraint = (x, y) => {
+      this.ballConstraint = Constraint.create({
+        pointA: { x: x, y: y },
+        bodyB: this.ball,
+        stiffness: 0.01,
+        damping: 0.0001,
+      });
+      this.isConstrained = true;
+      // Enables clicking when constraint is recreated
+      document.getElementsByTagName("BODY")[0].style["pointer-events"] = "auto";
+      World.add(engine.world, [this.ballConstraint]);
+    };
+
+    // Removes the constraint when ball is released
+    this.removeConstraint = (constraint) => {
+      setTimeout(() => {
+        Body.setVelocity(this.ball, {
+          x: limitVelocity(this.ball.velocity.x),
+          y: limitVelocity(this.ball.velocity.y),
+        });
+        constraint.bodyB = null;
+        constraint.pointA = { x: 0, y: 0 };
+        this.isConstrained = false;
+        World.remove(engine.world, [constraint]);
+      }, 100);
+      // Disables clicking of any kind when there is no constraint
+      document.getElementsByTagName("BODY")[0].style["pointer-events"] = "none";
+    };
+
+    // Draws constraints
+    const drawConstraint = (constraint) => {
+      push();
+      var offsetA = constraint.pointA;
+      var posA = { x: 0, y: 0 };
+      if (constraint.bodyA) {
+        posA = constraint.bodyA.position;
+      }
+      var offsetB = constraint.pointB;
+      var posB = { x: 0, y: 0 };
+      if (constraint.bodyB) {
+        posB = constraint.bodyB.position;
+      }
+      strokeWeight(3);
+      stroke("#B99976");
+      line(
+              posA.x + offsetA.x,
+              posA.y + offsetA.y,
+              posB.x + offsetB.x,
+              posB.y + offsetB.y
+      );
+      pop();
+    };
+
+    // Function to help limit velocity of cue ball
+    function limitVelocity(velocity) {
+      return velocity > 0 ? min(velocity, 20) : max(velocity, -20);
+    }
+
+    // Draws the cue ball
+    this.draw = () => {
+      push();
+      fill("white");
+      hp.drawVertices(this.ball.vertices);
+      stroke(0);
+      strokeWeight(3);
+      drawConstraint(this.ballConstraint);
+      pop();
+    };
+
+    // Checks whether the cue ball is moving, returns boolean
+    this.notMoving = () => {
+      return Math.abs(this.ball.velocity.x) <= 0.05 && Math.abs(this.ball.velocity.y) < 0.05;
+    };
+
+    // Checks whether the cue ball is in field, returns boolean
+    this.inField = () => {
+      return this.ball.position.y >= 106 && this.ball.position.y <= 494;
+    };
+  }
+
+  // CueStick class definition
+  class CueStick {
+    constructor() {
+      this.angle = 0;
+      this.shooting = false;
+      this.shootForce = 0;
+      this.maxShootForce = 20;
+      this.power = 0;
+    }
+
+    update() {
+      if (aiming && cueBall.ball) {
+        // Calculate the angle between the cue ball and the mouse
+        let cueBallPos = cueBall.ball.position; // Get the actual cue ball position from Matter.js body
+        this.angle = atan2(mouseY - cueBallPos.y, mouseX - cueBallPos.x);
+
+        // Check for power adjustment action
+        if (keyIsDown(UP_ARROW)) {
+          this.power = constrain(this.power + 0.2, 0, this.maxShootForce);
+        } else if (keyIsDown(DOWN_ARROW)) {
+          this.power = constrain(this.power - 0.2, 0, this.maxShootForce);
+        }
+      }
+
+      if (this.shooting) {
+        this.shooting = false;
+        // Apply the shooting force to the cue ball
+        let force = p5.Vector.fromAngle(this.angle).mult(this.power);
+        Body.applyForce(cueBall.ball, { x: cueBall.ball.position.x, y: cueBall.ball.position.y }, { x: force.x, y: force.y });
+        this.power = 0;
+        aiming = false; // Stop aiming after shooting
+      }
+    }
+
+    display() {
+      if (aiming && cueBall.ball) {
+        let cueBallPos = cueBall.ball.position; // Get the actual cue ball position from Matter.js body
+        let offset = 50 + (this.power / this.maxShootForce) * 50;
+
+        push();
+        translate(cueBallPos.x, cueBallPos.y);
+        rotate(this.angle);
+        rectMode(CENTER);
+        stroke(255);
+        fill(150);
+        rect(50 + offset, 0, 100, 10);
+        pop();
+      }
+    }
+  }
+
+  // Helper class definition
+  function Helper() {
+    this.drawVertices = (vertices) => {
+      beginShape();
+      for (let i = 0; i < vertices.length; i++) {
+        vertex(vertices[i].x, vertices[i].y);
+      }
+      endShape(CLOSE);
+    };
+
+    this.setupMouseInteraction = () => {
+      // Sets up the mouse interaction with the cue ball
+      const mouse = Mouse.create(canvas.elt);
+      const mouseParams = {
+        mouse: mouse,
+        constraint: { stiffness: 0.05 },
+      };
+      mouseConstraint = MouseConstraint.create(engine, mouseParams);
+      // Disables mouse interaction with the other balls
+      mouseConstraint.mouse.pixelRatio = pixelDensity();
+      mouseConstraint.collisionFilter.mask = 0x0001;
+      World.add(engine.world, mouseConstraint);
+    };
+  }
+
+  // PointBoard class definition
+  function PointBoard() {
+    let score = 0;
+
+    // Adds the score
+    this.addScore = (s) => {
+      score += s;
+    };
+
+    // Shows the scoreboard
+    this.showScore = () => {
+      push();
+      textSize(24);
+      fill("white");
+      stroke("white");
+      text("Score: " + score, 1050, 400);
+    };
+  }
+
+  // Table class definition
+  function Table() {
+    let cushions = [];
+    const tableWidth = 800;
+    const tableLength = tableWidth / 2;
+    const boxWidth = (tableWidth / 72) * 1.5;
+    const cushionHeight = 10;
+    const cushionAngle = 0.05;
+
+    // Creates the cushions as a trapezoid
+    this.createCushions = () => {
+      cushions.push(
+              Bodies.trapezoid(402, 105, tableWidth, cushionHeight, cushionAngle, { isStatic: true }), // top
+              Bodies.trapezoid(402, 495, tableWidth, cushionHeight, cushionAngle, { isStatic: true }), // bottom
+              Bodies.rectangle(150, 300, cushionHeight, tableLength, { isStatic: true }), // left
+              Bodies.rectangle(650, 300, cushionHeight, tableLength, { isStatic: true })  // right
+      );
+      World.add(engine.world, cushions);
+    };
+
+    // Draw the table
+    this.draw = () => {
+      for (let i = 0; i < cushions.length; i++) {
+        hp.drawVertices(cushions[i].vertices);
+      }
+    };
+
+    // Detect collision between ball and table cushions
+    this.detectCollision = (ball) => {
+      for (let i = 0; i < cushions.length; i++) {
+        if (Matter.SAT.collides(ball, cushions[i]).collided) {
+          console.log("Collision detected with cushion:", i);
+        }
+      }
+    };
+  }
+
+  // Timer class definition
+  function Timer() {
+    let minutes = 10;
+    let seconds = 0;
+    this.startTimer = () => {
+      //60 frames per second so runs this func one every second
+      if (frameCount % 60 == 0) {
+        if (minutes == 0 && seconds == 0) {
+          minutes = 0;
+          seconds = 0;
+          //kills the loop when time is over
+          noLoop();
+        } else if (seconds == 0) {
+          minutes -= 1;
+          seconds = 60;
+        }
+        seconds -= 1;
+      }
+    };
+    //draws the timer
+    this.drawTimer = () => {
+      push();
+      textSize(18);
+      fill("white");
+      stroke(255);
+      //adds a "0" before the minutes and seconds if they're less than 10
+      if (minutes + seconds != 0) {
+        text(
+                `Time left: ${minutes < 10 ? "0" + minutes : minutes}:${seconds < 10 ? "0" + seconds : seconds}`,
+                1050,
+                200
+        );
+      } else {
+        text("TIME'S UP!", 1050, 200);
+      }
+      pop();
+    };
+  }
+</script>
+</body>
+</html>

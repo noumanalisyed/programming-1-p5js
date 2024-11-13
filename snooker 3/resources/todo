@@ -1,0 +1,10 @@
+1. draw the pockets --DONE
+2. interaction with ball and pockets 
+3. insert the cue ball in Dzone by human interact
+4. adjust speed and friction for balls --DONE
+5. collision detection function
+6. fix lever
+7. make the canvas bigger to show notifications text
+8. put the lever outside
+9. implement different handling for different type of balls in pocket
+10. Redraw balls in different positions --DONE
