@@ -2,6 +2,6 @@
 <project version="4">
   <component name="VcsDirectoryMappings">
     <mapping directory="$PROJECT_DIR$" vcs="Git" />
-    <mapping directory="$PROJECT_DIR$/poolgame-matter" vcs="Git" />
+    <mapping directory="$PROJECT_DIR$/conditions" vcs="Git" />
   </component>
 </project>
